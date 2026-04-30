@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Environment Variables
+.env
+.env.local
+.env.production
+
+# Google OAuth - NEVER commit these
+credentials.json
+token.json
+httplocalhost*.json
+
+# Node.js
+node_modules/
+frontend/node_modules/
+
+# React build output (generated, not needed in source control)
+frontend/dist/
+
+# Database / test files
+test_mongo.py
+view_db.py
+
+# OS files
+.DS_Store
+Thumbs.db
