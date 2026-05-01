@@ -57,6 +57,7 @@ class StartRequest(BaseModel):
     user_name: str
     user_company: str
     user_services: str = ""
+    gmail_access_token: str = ""
 
 class SaveDraftRequest(BaseModel):
     subject: str
@@ -66,6 +67,7 @@ class ActionRequest(BaseModel):
     thread_id: str
     action: str  # "approve", "edit", "regenerate_email", "new_ux_issue"
     edited_email: str = ""
+    gmail_access_token: str = ""
 
 def get_state_response(state):
     if state.next and state.next[0] == "approval_node":
@@ -180,7 +182,8 @@ async def start_pipeline(req: StartRequest):
         "user_company": req.user_company,
         "user_approval": False,
         "regeneration_mode": "",
-        "edited_email": ""
+        "edited_email": "",
+        "gmail_access_token": req.gmail_access_token
     }
     
     # Run pipeline until it hits the interrupt (approval_node)
@@ -196,9 +199,9 @@ async def take_action(req: ActionRequest):
     
     # Map the frontend action to state updates
     if req.action == "approve":
-        pipeline.update_state(config, {"user_approval": True, "regeneration_mode": "", "edited_email": ""})
+        pipeline.update_state(config, {"user_approval": True, "regeneration_mode": "", "edited_email": "", "gmail_access_token": req.gmail_access_token})
     elif req.action == "edit":
-        pipeline.update_state(config, {"user_approval": False, "regeneration_mode": "edit", "edited_email": req.edited_email})
+        pipeline.update_state(config, {"user_approval": False, "regeneration_mode": "edit", "edited_email": req.edited_email, "gmail_access_token": req.gmail_access_token})
     elif req.action == "regenerate_email":
         pipeline.update_state(config, {"user_approval": False, "regeneration_mode": "regenerate_email", "edited_email": ""})
     elif req.action == "new_ux_issue":

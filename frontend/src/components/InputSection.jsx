@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { User, Clock, Settings } from 'lucide-react';
 import { api } from '../services/api';
 
-export default function InputSection({ currentUser, onLogout, setView, threadId, setApprovalData }) {
+export default function InputSection({ currentUser, onLogout, setView, threadId, setApprovalData, gmailToken }) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("Run Intelligence Agent");
@@ -40,7 +40,8 @@ export default function InputSection({ currentUser, onLogout, setView, threadId,
         currentUser.user_id,
         currentUser.name,
         currentUser.company || "",
-        currentUser.services || ""
+        currentUser.services || "",
+        gmailToken || ""
       );
 
       clearInterval(progressInterval);

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Target, Maximize2, Mail, Send, Bookmark, Edit, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 
-export default function ApprovalSection({ approvalData, threadId, setView, setApprovalData, openModal }) {
+export default function ApprovalSection({ approvalData, threadId, setView, setApprovalData, openModal, gmailToken }) {
   const [loading, setLoading] = useState(false);
   const [editedEmail, setEditedEmail] = useState(approvalData.email?.email_body || "");
   const [subjectLine, setSubjectLine] = useState(approvalData.email?.subject_line || "");
@@ -15,7 +15,7 @@ export default function ApprovalSection({ approvalData, threadId, setView, setAp
     setLoading(true);
     
     try {
-      const data = await api.handleAction(threadId, actionType, actionType === 'edit' ? editedEmail : "");
+      const data = await api.handleAction(threadId, actionType, actionType === 'edit' ? editedEmail : "", gmailToken || "");
       
       if (data.status === 'completed') {
         setView('success');

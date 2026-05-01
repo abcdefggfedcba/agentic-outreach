@@ -80,6 +80,7 @@ class GraphState(TypedDict):
     user_id: str
     user_name: str
     user_company: str
+    gmail_access_token: str  # User's Gmail OAuth access token (from frontend sign-in)
 
 # =======================================================================
 # 2. OUTPUT SCHEMAS (STRUCTURED JSON RESPONSES)
@@ -326,57 +327,34 @@ def send_email_agent(state: GraphState) -> Dict:
     import os
     
     if state.get("regeneration_mode") != "save_history_only":
-        try:
-            import base64
-            from email.message import EmailMessage
-            from google.auth.transport.requests import Request
-            from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import InstalledAppFlow
-            from googleapiclient.discovery import build
-            from googleapiclient.errors import HttpError
-            
-            SCOPES = ['https://www.googleapis.com/auth/gmail.compose']
-            creds = None
-            
-            print("  ✉ Authenticating with Google Gmail API...")
-            if os.path.exists('token.json'):
-                creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-                
-            if not creds or not creds.valid:
-                if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
-                else:
-                    if not os.path.exists('credentials.json'):
-                        raise FileNotFoundError("credentials.json not found. Please download OAuth client ID JSON from Google Cloud Console and save it as credentials.json in the root directory.")
-                    flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-                    creds = flow.run_local_server(port=0)
-                with open('token.json', 'w') as token:
-                    token.write(creds.to_json())
+        gmail_access_token = state.get("gmail_access_token", "")
+        if gmail_access_token:
+            try:
+                import base64
+                from email.message import EmailMessage
+                from google.oauth2.credentials import Credentials
+                from googleapiclient.discovery import build
 
-            service = build('gmail', 'v1', credentials=creds)
+                print("  ✉ Authenticating with user Gmail access token...")
+                creds = Credentials(token=gmail_access_token)
+                service = build('gmail', 'v1', credentials=creds)
 
-            message = EmailMessage()
-            message.set_content(body)
-            message['To'] = ", ".join(leads) if leads else ""
-            message['From'] = 'me'
-            message['Subject'] = subject
+                message = EmailMessage()
+                message.set_content(body)
+                message['To'] = ", ".join(leads) if leads else ""
+                message['From'] = 'me'
+                message['Subject'] = subject
 
-            encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+                encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+                create_message = {'message': {'raw': encoded_message}}
 
-            create_message = {
-                'message': {
-                    'raw': encoded_message
-                }
-            }
-
-            print("  ✉ Creating draft...")
-            draft = service.users().drafts().create(userId="me", body=create_message).execute()
-            print(f"  ✓ Draft saved successfully to Gmail! (Draft ID: {draft['id']})")
-            
-        except ImportError:
-            print("  ⚠️ Google API libraries not installed. Run `pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib`.")
-        except Exception as e:
-            print(f"  ❌ Failed to save draft to Gmail: {e}")
+                print("  ✉ Creating draft...")
+                draft = service.users().drafts().create(userId="me", body=create_message).execute()
+                print(f"  ✓ Draft saved to Gmail! (Draft ID: {draft['id']})")
+            except Exception as e:
+                print(f"  ❌ Failed to save draft to Gmail: {e}")
+        else:
+            print("  ⚠️ No Gmail access token provided — skipping Gmail draft save.")
 
     try:
         from pymongo import MongoClient

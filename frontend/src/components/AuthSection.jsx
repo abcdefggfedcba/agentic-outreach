@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 
-export default function AuthSection({ onLogin }) {
+export default function AuthSection({ onLogin, onGmailToken }) {
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,13 +42,32 @@ export default function AuthSection({ onLogin }) {
     }
   }, []);
 
+  const requestGmailToken = (callback) => {
+    if (!window.google?.accounts?.oauth2) return;
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: "842703581435-jn55ranuqnu5r872qqq57va435bi91tm.apps.googleusercontent.com",
+      scope: 'https://www.googleapis.com/auth/gmail.compose',
+      callback: (tokenResponse) => {
+        if (tokenResponse?.access_token) {
+          onGmailToken(tokenResponse.access_token);
+        }
+        if (callback) callback();
+      },
+      error_callback: () => { if (callback) callback(); }
+    });
+    // Request without showing a new popup (uses already-authenticated session)
+    tokenClient.requestAccessToken({ prompt: '' });
+  };
+
   const handleGoogleLogin = async (response) => {
     setError('');
     setLoading(true);
     try {
       const data = await api.googleLogin(response.credential);
       if (data.status === 'success') {
-        onLogin({ user_id: data.user_id, name: data.name, picture: data.picture, company: data.company, services: data.services });
+        // First request Gmail token, then complete login
+        const user = { user_id: data.user_id, name: data.name, picture: data.picture, company: data.company, services: data.services };
+        requestGmailToken(() => onLogin(user));
       } else {
         setError(data.message);
       }

@@ -20,6 +20,7 @@ function App() {
   const [approvalData, setApprovalData] = useState({ issue: {}, email: {} });
   const [modalOpen, setModalOpen] = useState(false);
   const [modalText, setModalText] = useState("");
+  const [gmailToken, setGmailToken] = useState(() => localStorage.getItem('gmail_token') || "");
 
   useEffect(() => {
     if (currentUser) {
@@ -34,11 +35,18 @@ function App() {
     setActiveView('input');
   };
 
+  const handleSetGmailToken = (token) => {
+    setGmailToken(token);
+    localStorage.setItem('gmail_token', token);
+  };
+
   const handleLogout = () => {
     if (window.google?.accounts?.id) {
         window.google.accounts.id.disableAutoSelect();
     }
     setCurrentUser(null);
+    setGmailToken("");
+    localStorage.removeItem('gmail_token');
     setActiveView('auth');
   };
 
@@ -62,10 +70,10 @@ function App() {
         </header>
 
         <main id="main-content" className="glass-panel">
-          {activeView === 'auth' && <AuthSection onLogin={handleLogin} />}
-          {activeView === 'input' && <InputSection currentUser={currentUser} onLogout={handleLogout} setView={setActiveView} threadId={currentThreadId} setApprovalData={setApprovalData} />}
+          {activeView === 'auth' && <AuthSection onLogin={handleLogin} onGmailToken={handleSetGmailToken} />}
+          {activeView === 'input' && <InputSection currentUser={currentUser} onLogout={handleLogout} setView={setActiveView} threadId={currentThreadId} setApprovalData={setApprovalData} gmailToken={gmailToken} />}
           {activeView === 'onboarding' && <OnboardingSection currentUser={currentUser} setCurrentUser={setCurrentUser} setView={setActiveView} />}
-          {activeView === 'approval' && <ApprovalSection approvalData={approvalData} threadId={currentThreadId} setView={setActiveView} setApprovalData={setApprovalData} openModal={openModal} />}
+          {activeView === 'approval' && <ApprovalSection approvalData={approvalData} threadId={currentThreadId} setView={setActiveView} setApprovalData={setApprovalData} openModal={openModal} gmailToken={gmailToken} />}
           {activeView === 'success' && <SuccessSection setView={setActiveView} />}
           {activeView === 'history' && <HistorySection currentUser={currentUser} setView={setActiveView} openModal={openModal} />}
         </main>

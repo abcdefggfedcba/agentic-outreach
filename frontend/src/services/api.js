@@ -35,20 +35,20 @@ export const api = {
         return await res.json();
     },
 
-    async startPipeline(url, context, thread_id, user_id, user_name, user_company, user_services) {
+    async startPipeline(url, context, thread_id, user_id, user_name, user_company, user_services, gmail_access_token = "") {
         const res = await fetch('/api/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, context, thread_id, user_id, user_name, user_company, user_services })
+            body: JSON.stringify({ url, context, thread_id, user_id, user_name, user_company, user_services, gmail_access_token })
         });
         return await res.json();
     },
 
-    async handleAction(thread_id, action, edited_email) {
+    async handleAction(thread_id, action, edited_email, gmail_access_token = "") {
         const res = await fetch('/api/action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ thread_id, action, edited_email })
+            body: JSON.stringify({ thread_id, action, edited_email, gmail_access_token })
         });
         return await res.json();
     },
