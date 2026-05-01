@@ -30,6 +30,14 @@ function App() {
     }
   }, [currentUser]);
 
+  // Keep Render free tier server warm — ping every 10 minutes to prevent cold starts
+  useEffect(() => {
+    const ping = () => fetch('/api/ping').catch(() => {});
+    ping(); // Ping immediately on load
+    const interval = setInterval(ping, 10 * 60 * 1000); // Every 10 minutes
+    return () => clearInterval(interval);
+  }, []);
+
   const handleLogin = (user) => {
     setCurrentUser(user);
     setActiveView('input');

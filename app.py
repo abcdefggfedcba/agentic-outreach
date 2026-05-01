@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import uvicorn
 import os
+import asyncio
 import dotenv
 import hashlib
 import uuid
@@ -171,6 +172,11 @@ async def update_profile(req: UpdateProfileRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/api/ping")
+async def ping():
+    """Lightweight keep-alive endpoint to prevent Render free tier cold starts."""
+    return {"status": "ok"}
+
 @app.post("/api/start")
 async def start_pipeline(req: StartRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
@@ -185,18 +191,20 @@ async def start_pipeline(req: StartRequest):
         "edited_email": "",
         "gmail_access_token": req.gmail_access_token
     }
-    
-    # Run pipeline until it hits the interrupt (approval_node)
-    for event in pipeline.stream(initial_state, config=config):
-        pass
-        
-    state = pipeline.get_state(config)
+
+    def run_pipeline():
+        for event in pipeline.stream(initial_state, config=config):
+            pass
+        return pipeline.get_state(config)
+
+    # Run the blocking pipeline in a thread pool to avoid blocking FastAPI
+    state = await asyncio.to_thread(run_pipeline)
     return get_state_response(state)
 
 @app.post("/api/action")
 async def take_action(req: ActionRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
-    
+
     # Map the frontend action to state updates
     if req.action == "approve":
         pipeline.update_state(config, {"user_approval": True, "regeneration_mode": "", "edited_email": "", "gmail_access_token": req.gmail_access_token})
@@ -208,12 +216,14 @@ async def take_action(req: ActionRequest):
         pipeline.update_state(config, {"user_approval": False, "regeneration_mode": "new_ux_issue", "edited_email": ""})
     elif req.action == "save_history_only":
         pipeline.update_state(config, {"user_approval": True, "regeneration_mode": "save_history_only", "edited_email": ""})
-        
-    # Resume the pipeline
-    for event in pipeline.stream(None, config=config):
-        pass
-        
-    state = pipeline.get_state(config)
+
+    def resume_pipeline():
+        for event in pipeline.stream(None, config=config):
+            pass
+        return pipeline.get_state(config)
+
+    # Run the blocking pipeline in a thread pool
+    state = await asyncio.to_thread(resume_pipeline)
     return get_state_response(state)
 
 @app.get("/api/history/{user_id}")
