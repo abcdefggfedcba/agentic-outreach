@@ -71,7 +71,7 @@ function App() {
 
         <main id="main-content" className="glass-panel">
           {activeView === 'auth' && <AuthSection onLogin={handleLogin} onGmailToken={handleSetGmailToken} />}
-          {activeView === 'input' && <InputSection currentUser={currentUser} onLogout={handleLogout} setView={setActiveView} threadId={currentThreadId} setApprovalData={setApprovalData} gmailToken={gmailToken} />}
+          {activeView === 'input' && <InputSection currentUser={currentUser} onLogout={handleLogout} setView={setActiveView} threadId={currentThreadId} setApprovalData={setApprovalData} gmailToken={gmailToken} onGmailToken={handleSetGmailToken} />}
           {activeView === 'onboarding' && <OnboardingSection currentUser={currentUser} setCurrentUser={setCurrentUser} setView={setActiveView} />}
           {activeView === 'approval' && <ApprovalSection approvalData={approvalData} threadId={currentThreadId} setView={setActiveView} setApprovalData={setApprovalData} openModal={openModal} gmailToken={gmailToken} />}
           {activeView === 'success' && <SuccessSection setView={setActiveView} />}
