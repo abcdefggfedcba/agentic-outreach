@@ -53,7 +53,7 @@ def scrape_url(url: str) -> str:
             extractor = TextExtractor()
             extractor.feed(html)
             text = extractor.get_text()
-            return text[:6000]
+            return text[:2500]
     except Exception as e:
         return f"Could not scrape {url}: {e}"
 
@@ -227,70 +227,58 @@ def ux_intelligence_agent(state: GraphState) -> Dict:
         
     return {"ux_issues": new_issues, "selected_issue": selected_issue, "status": "ux_analyzed"}
 
-def email_agent(state: GraphState) -> Dict:
+def email_and_lead_agent(state: GraphState) -> Dict:
     """
-    Purpose: Generate cold outreach email based on UX issue.
+    Purpose: Run email drafting and lead extraction IN PARALLEL to save time.
     """
-    print("▶ [EMAIL AGENT] Drafting high-conversion outreach...")
-    llm = get_llm(0.8).with_structured_output(EmailOutput)
-    
-    sys_prompt = (
-        "You are an expert sales strategist and growth hacker. Generate a cold outreach email based ONLY on the identified issues/opportunities and the real-time scraped website data.\n"
-        "Constraints:\n"
-        "- Max 120 words\n"
-        "- Highly personalized and Conversion-focused\n"
-        "- Hook the reader in the first line\n"
-        "- Reference the specific issues or opportunities naturally (you can summarize them if there are many)\n"
-        "- MUST use a proper email structure: Start with a greeting (e.g. 'Hi Team,'), use paragraph breaks (\\n\\n) for readability, and end with a proper sign-off.\n"
-        "STRICT RULE: Ban guessing, predicting, hallucinating, and assuming. Every fact, feature, or metric you mention about their business MUST come directly from the real-time website content. Do not invent details.\n"
-        "IMPORTANT: Sign the email off professionally using the Sender Name and Sender Company provided.\n"
-        "IMPORTANT: Respond ONLY with a valid JSON object matching the requested schema. Do not include any conversational text or markdown formatting."
-    )
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", sys_prompt),
-        ("user", "Business Context: {business_data}\nReal-Time Website Content: {realtime_data}\nTarget Issue: {selected_issue}\nIdeation Context: {context}\nSender Name: {user_name}\nSender Company: {user_company}")
-    ])
-    
-    chain = prompt | llm
-    email_output = safe_invoke(chain, {
-        "business_data": state.get("business_data"),
-        "realtime_data": state.get("realtime_website_data", "No real-time data available."),
-        "selected_issue": state.get("selected_issue"),
-        "context": state.get("ideation_context"),
-        "user_name": state.get("user_name", "UX Expert"),
-        "user_company": state.get("user_company", "Our Agency")
-    })
-    
-    return {"email_output": email_output.dict(), "status": "email_generated"}
+    print("▶ [EMAIL + LEAD AGENTS] Running in parallel...")
+    from concurrent.futures import ThreadPoolExecutor
 
-def lead_agent(state: GraphState) -> Dict:
-    """
-    Purpose: Extract and validate contact emails.
-    """
-    print("▶ [LEAD AGENT] Sourcing contacts...")
-    llm = get_llm(0.0, "meta/llama-3.1-8b-instruct").with_structured_output(LeadOutput)
-    
-    sys_prompt = (
-        "You are an expert lead researcher. Carefully analyze the REAL-TIME scraped website content provided and extract ONLY the actual email addresses explicitly mentioned in the text. "
-        "DO NOT guess, hallucinate, or predict emails (like info@ or contact@) if they are not explicitly written on the website. "
-        "If absolutely no email addresses are found in the scraped content, return an empty list for the emails field.\n"
-        "IMPORTANT: Respond ONLY with a valid JSON object matching the requested schema. Do not include any conversational text or markdown formatting."
-    )
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", sys_prompt),
-        ("user", "URL: {url}\nBusiness Summary: {business}\nReal-Time Website Content: {realtime_data}")
-    ])
-    
-    chain = prompt | llm
-    leads = chain.invoke({
-        "url": state.get("input_url"),
-        "business": state.get("business_data", {}).get("summary", ""),
-        "realtime_data": state.get("realtime_website_data", "No real-time data available.")
-    })
-    
-    return {"leads": leads.dict(), "status": "leads_found"}
+    def run_email():
+        llm = get_llm(0.8).with_structured_output(EmailOutput)
+        sys_prompt = (
+            "You are a sales expert. Write a cold outreach email based on the identified issues and website data.\n"
+            "Rules: Max 120 words. Personalized. Hook in first line. Proper greeting and sign-off.\n"
+            "Sign off using Sender Name and Sender Company. JSON only — no markdown."
+        )
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", sys_prompt),
+            ("user", "Business: {business_data}\nWebsite: {realtime_data}\nIssue: {selected_issue}\nContext: {context}\nSender: {user_name}, {user_company}")
+        ])
+        result = safe_invoke(prompt | llm, {
+            "business_data": state.get("business_data"),
+            "realtime_data": state.get("realtime_website_data", "")[:1500],
+            "selected_issue": state.get("selected_issue"),
+            "context": state.get("ideation_context"),
+            "user_name": state.get("user_name", "UX Expert"),
+            "user_company": state.get("user_company", "Our Agency")
+        })
+        return result.dict()
+
+    def run_lead():
+        llm = get_llm(0.0, "meta/llama-3.1-8b-instruct").with_structured_output(LeadOutput)
+        sys_prompt = (
+            "Extract ONLY explicitly listed email addresses from the website content. "
+            "Do NOT guess or invent emails. Return empty list if none found. JSON only."
+        )
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", sys_prompt),
+            ("user", "URL: {url}\nContent: {realtime_data}")
+        ])
+        result = safe_invoke(prompt | llm, {
+            "url": state.get("input_url"),
+            "realtime_data": state.get("realtime_website_data", "")[:1500]
+        })
+        return result.dict()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        email_future = executor.submit(run_email)
+        lead_future = executor.submit(run_lead)
+        email_output = email_future.result()
+        leads = lead_future.result()
+
+    print("  ✓ Email drafted and leads sourced in parallel.")
+    return {"email_output": email_output, "leads": leads, "status": "email_generated"}
 
 def approval_node(state: GraphState) -> Dict:
     print(f"▶ [APPROVAL NODE] Current Approval Status: {state.get('user_approval')}")
@@ -407,16 +395,14 @@ def build_pipeline():
     builder = StateGraph(GraphState)
     builder.add_node("input_agent", input_agent)
     builder.add_node("ux_intelligence_agent", ux_intelligence_agent)
-    builder.add_node("email_agent", email_agent)
-    builder.add_node("lead_agent", lead_agent)
+    builder.add_node("email_and_lead_agent", email_and_lead_agent)
     builder.add_node("approval_node", approval_node)
     builder.add_node("edit_regenerate_flow", edit_regenerate_flow)
     builder.add_node("send_email_agent", send_email_agent)
-    
+
     builder.add_edge("input_agent", "ux_intelligence_agent")
-    builder.add_edge("ux_intelligence_agent", "email_agent")
-    builder.add_edge("email_agent", "lead_agent")
-    builder.add_edge("lead_agent", "approval_node")
+    builder.add_edge("ux_intelligence_agent", "email_and_lead_agent")
+    builder.add_edge("email_and_lead_agent", "approval_node")
     
     builder.add_conditional_edges("approval_node", approval_router, {
         "send_email_agent": "send_email_agent",
@@ -424,7 +410,7 @@ def build_pipeline():
     })
     builder.add_conditional_edges("edit_regenerate_flow", regeneration_router, {
         "approval_node": "approval_node",
-        "email_agent": "email_agent",
+        "email_agent": "email_and_lead_agent",
         "ux_intelligence_agent": "ux_intelligence_agent"
     })
     
