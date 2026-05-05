@@ -8,6 +8,12 @@ import asyncio
 import dotenv
 import hashlib
 import uuid
+import random
+import smtplib
+import re
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime, timedelta
 from pymongo import MongoClient
 
 dotenv.load_dotenv()
@@ -35,10 +41,15 @@ def hash_password(password: str, salt: str = None):
     hashed = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
     return hashed, salt
 
+class SendOtpRequest(BaseModel):
+    email: str
+    name: str
+
 class SignupRequest(BaseModel):
     name: str
     email: str
     password: str
+    otp: str
 
 class LoginRequest(BaseModel):
     email: str
@@ -70,6 +81,40 @@ class ActionRequest(BaseModel):
     edited_email: str = ""
     gmail_access_token: str = ""
 
+def is_valid_email_format(email: str) -> bool:
+    """Basic email format validation."""
+    pattern = r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+def send_otp_email(to_email: str, name: str, otp: str) -> bool:
+    """Send OTP verification email via SMTP."""
+    smtp_email = os.getenv("SMTP_EMAIL", "")
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+    if not smtp_email or not smtp_password:
+        print("[OTP] SMTP credentials not configured.")
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Your Agentic Outreach Verification Code"
+        msg["From"] = smtp_email
+        msg["To"] = to_email
+        html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;background:#0a0a0a;border-radius:12px;border:1px solid #27272a">
+          <h2 style="color:#fff;margin:0 0 8px">Verify your email</h2>
+          <p style="color:#a1a1aa;margin:0 0 24px">Hi {name}, use the code below to complete your sign up.</p>
+          <div style="background:#18181b;border-radius:8px;padding:24px;text-align:center;letter-spacing:12px;font-size:36px;font-weight:700;color:#6366f1">{otp}</div>
+          <p style="color:#71717a;font-size:13px;margin-top:24px">This code expires in <strong>10 minutes</strong>. If you didn't request this, ignore this email.</p>
+        </div>
+        """
+        msg.attach(MIMEText(html, "html"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[OTP] Email send error: {e}")
+        return False
+
 def get_state_response(state):
     if state.next and state.next[0] == "approval_node":
         return {
@@ -83,24 +128,82 @@ def get_state_response(state):
             "message": "Pipeline finished successfully and stored in the database!"
         }
 
+@app.post("/api/send-otp")
+async def send_otp(req: SendOtpRequest):
+    """Send OTP to email for signup verification."""
+    email = req.email.strip().lower()
+
+    # Validate email format
+    if not is_valid_email_format(email):
+        return {"status": "error", "message": "Invalid email address format."}
+
+    # Check if email already registered
+    try:
+        if users_collection.find_one({"email": email}):
+            return {"status": "error", "message": "This email is already registered. Please log in."}
+    except Exception:
+        return {"status": "error", "message": "Database connection failed."}
+
+    # Generate 6-digit OTP
+    otp = str(random.randint(100000, 999999))
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+    # Store OTP in DB (upsert so re-requests overwrite)
+    try:
+        db["otp_store"].update_one(
+            {"email": email},
+            {"$set": {"otp": otp, "name": req.name, "expires_at": expires_at, "verified": False}},
+            upsert=True
+        )
+    except Exception:
+        return {"status": "error", "message": "Database error storing OTP."}
+
+    # Send email
+    sent = await asyncio.to_thread(send_otp_email, email, req.name, otp)
+    if not sent:
+        return {"status": "error", "message": "Failed to send verification email. Please check your email address and try again."}
+
+    return {"status": "success", "message": "Verification code sent to your email."}
+
 @app.post("/api/signup")
 async def signup(req: SignupRequest):
+    email = req.email.strip().lower()
+
+    # Validate email format
+    if not is_valid_email_format(email):
+        return {"status": "error", "message": "Invalid email address format."}
+
     try:
-        if users_collection.find_one({"email": req.email}):
-            return {"status": "error", "message": "Email already exists."}
-        
+        # Verify OTP
+        record = db["otp_store"].find_one({"email": email})
+        if not record:
+            return {"status": "error", "message": "No verification code found. Please request a new one."}
+        if record["otp"] != req.otp.strip():
+            return {"status": "error", "message": "Incorrect verification code."}
+        if datetime.utcnow() > record["expires_at"]:
+            return {"status": "error", "message": "Verification code has expired. Please request a new one."}
+
+        # Check email not already taken
+        if users_collection.find_one({"email": email}):
+            return {"status": "error", "message": "Email already registered. Please log in."}
+
+        # Create account
         hashed_pw, salt = hash_password(req.password)
         user_id = str(uuid.uuid4())
-        
         users_collection.insert_one({
             "user_id": user_id,
             "name": req.name,
-            "email": req.email,
+            "email": email,
             "password": hashed_pw,
             "salt": salt,
             "company": "",
-            "services": ""
+            "services": "",
+            "email_verified": True
         })
+
+        # Clean up used OTP
+        db["otp_store"].delete_one({"email": email})
+
         return {"status": "success", "user_id": user_id, "name": req.name, "company": "", "services": ""}
     except Exception as e:
         return {"status": "error", "message": "Database connection failed. Please whitelist your IP in MongoDB Atlas."}

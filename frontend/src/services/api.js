@@ -17,11 +17,20 @@ export const api = {
         return await res.json();
     },
 
-    async signup(name, email, password) {
+    async sendOtp(name, email) {
+        const res = await fetch('/api/send-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email })
+        });
+        return await res.json();
+    },
+
+    async signup(name, email, password, otp) {
         const res = await fetch('/api/signup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password })
+            body: JSON.stringify({ name, email, password, otp })
         });
         return await res.json();
     },
