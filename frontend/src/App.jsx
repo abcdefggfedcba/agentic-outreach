@@ -20,7 +20,7 @@ function App() {
   const [approvalData, setApprovalData] = useState({ issue: {}, email: {} });
   const [modalOpen, setModalOpen] = useState(false);
   const [modalText, setModalText] = useState("");
-  const [gmailToken, setGmailToken] = useState("");
+  const [gmailToken, setGmailToken] = useState(() => localStorage.getItem('gmail_token') || "");
 
   useEffect(() => {
     if (currentUser) {
@@ -40,18 +40,12 @@ function App() {
 
   const handleLogin = (user) => {
     setCurrentUser(user);
-    // Restore the Gmail token saved for this specific user
-    const savedToken = localStorage.getItem(`gmail_token_${user.user_id}`) || "";
-    setGmailToken(savedToken);
     setActiveView('input');
   };
 
   const handleSetGmailToken = (token) => {
     setGmailToken(token);
-    // Save per user_id so it persists across logouts
-    if (currentUser?.user_id) {
-      localStorage.setItem(`gmail_token_${currentUser.user_id}`, token);
-    }
+    localStorage.setItem('gmail_token', token); // Persists across logout
   };
 
   const handleLogout = () => {
@@ -59,7 +53,7 @@ function App() {
         window.google.accounts.id.disableAutoSelect();
     }
     setCurrentUser(null);
-    setGmailToken(""); // Clear in-memory only; per-user token in localStorage is preserved
+    setGmailToken(""); // Clear in-memory only; localStorage token survives for next login
     setActiveView('auth');
   };
 

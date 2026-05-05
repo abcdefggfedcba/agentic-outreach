@@ -43,15 +43,14 @@ export default function AuthSection({ onLogin, onGmailToken }) {
   }, []);
 
   const requestGmailToken = (user, callback) => {
-    // Check if we already have a valid token saved for this user
-    const savedToken = localStorage.getItem(`gmail_token_${user.user_id}`);
+    // If token already stored from a previous session, use it immediately
+    const savedToken = localStorage.getItem('gmail_token');
     if (savedToken) {
       onGmailToken(savedToken);
       if (callback) callback();
       return;
     }
-
-    // No saved token — try a silent request (works if user already consented before)
+    // No saved token — try silent request (works if user already consented before)
     if (!window.google?.accounts?.oauth2) {
       if (callback) callback();
       return;
@@ -62,14 +61,12 @@ export default function AuthSection({ onLogin, onGmailToken }) {
       callback: (tokenResponse) => {
         if (tokenResponse?.access_token) {
           onGmailToken(tokenResponse.access_token);
-          // Save it for next time
-          localStorage.setItem(`gmail_token_${user.user_id}`, tokenResponse.access_token);
+          localStorage.setItem('gmail_token', tokenResponse.access_token);
         }
         if (callback) callback();
       },
       error_callback: () => { if (callback) callback(); }
     });
-    // Silent request — no popup (Google grants silently if already consented)
     tokenClient.requestAccessToken({ prompt: '' });
   };
 
@@ -80,7 +77,6 @@ export default function AuthSection({ onLogin, onGmailToken }) {
       const data = await api.googleLogin(response.credential);
       if (data.status === 'success') {
         const user = { user_id: data.user_id, name: data.name, picture: data.picture, company: data.company, services: data.services };
-        // Try to restore or silently refresh Gmail token, then proceed to login
         requestGmailToken(user, () => onLogin(user));
       } else {
         setError(data.message);
@@ -91,6 +87,7 @@ export default function AuthSection({ onLogin, onGmailToken }) {
       setLoading(false);
     }
   };
+
 
 
   const handleSubmit = async (e) => {
