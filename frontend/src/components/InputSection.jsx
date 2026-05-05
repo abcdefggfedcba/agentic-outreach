@@ -26,6 +26,10 @@ export default function InputSection({ currentUser, onLogout, setView, threadId,
         setGmailConnecting(false);
         if (tokenResponse?.access_token) {
           onGmailToken(tokenResponse.access_token);
+          // Save per user so it persists across logouts (one-time connect)
+          if (currentUser?.user_id) {
+            localStorage.setItem(`gmail_token_${currentUser.user_id}`, tokenResponse.access_token);
+          }
         } else {
           alert("Gmail permission was denied. Draft saving will not work.");
         }
@@ -35,9 +39,9 @@ export default function InputSection({ currentUser, onLogout, setView, threadId,
         alert("Gmail connection failed: " + (err?.message || "Unknown error"));
       }
     });
-    // Use 'consent' to always show the permission screen properly
     tokenClient.requestAccessToken({ prompt: 'consent' });
   };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
