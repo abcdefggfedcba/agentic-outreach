@@ -86,33 +86,45 @@ def is_valid_email_format(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email))
 
+import urllib.request
+import json
+
 def send_otp_email(to_email: str, name: str, otp: str) -> bool:
-    """Send OTP verification email via SMTP."""
-    smtp_email = os.getenv("SMTP_EMAIL", "")
-    smtp_password = os.getenv("SMTP_PASSWORD", "")
-    if not smtp_email or not smtp_password:
-        print("[OTP] SMTP credentials not configured.")
-        return False
+    """Send OTP verification email via Resend API."""
+    resend_api_key = os.getenv("RESEND_API_KEY", "re_ZLi4JqXZ_4D5NUnZAF1dLKie8wKQJHVEV")
+    
+    url = "https://api.resend.com/emails"
+    
+    html_content = f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;background:#0a0a0a;border-radius:12px;border:1px solid #27272a">
+      <h2 style="color:#fff;margin:0 0 8px">Verify your email</h2>
+      <p style="color:#a1a1aa;margin:0 0 24px">Hi {name}, use the code below to complete your sign up.</p>
+      <div style="background:#18181b;border-radius:8px;padding:24px;text-align:center;letter-spacing:12px;font-size:36px;font-weight:700;color:#6366f1">{otp}</div>
+      <p style="color:#71717a;font-size:13px;margin-top:24px">This code expires in <strong>10 minutes</strong>. If you didn't request this, ignore this email.</p>
+    </div>
+    """
+    
+    payload = {
+        "from": "Agentic Outreach <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": "Your Agentic Outreach Verification Code",
+        "html": html_content
+    }
+    
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(url, data=data)
+    req.add_header("Authorization", f"Bearer {resend_api_key}")
+    req.add_header("Content-Type", "application/json")
+    
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "Your Agentic Outreach Verification Code"
-        msg["From"] = smtp_email
-        msg["To"] = to_email
-        html = f"""
-        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;background:#0a0a0a;border-radius:12px;border:1px solid #27272a">
-          <h2 style="color:#fff;margin:0 0 8px">Verify your email</h2>
-          <p style="color:#a1a1aa;margin:0 0 24px">Hi {name}, use the code below to complete your sign up.</p>
-          <div style="background:#18181b;border-radius:8px;padding:24px;text-align:center;letter-spacing:12px;font-size:36px;font-weight:700;color:#6366f1">{otp}</div>
-          <p style="color:#71717a;font-size:13px;margin-top:24px">This code expires in <strong>10 minutes</strong>. If you didn't request this, ignore this email.</p>
-        </div>
-        """
-        msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
-        return True
+        with urllib.request.urlopen(req) as response:
+            if response.getcode() in [200, 201]:
+                return True
+            else:
+                print(f"[OTP] Resend API error: {response.read()}")
+                return False
     except Exception as e:
-        print(f"[OTP] Email send error: {e}")
+        print(f"[OTP] Resend exception: {e}")
         return False
 
 def get_state_response(state):
