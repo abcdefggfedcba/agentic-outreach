@@ -158,10 +158,10 @@ class LeadOutput(BaseModel):
 
 def get_llm(temperature=0.5, model="meta/llama-3.1-8b-instruct"):
     """
-    Initialize the LLM. 
+    Initialize the LLM with a strict timeout to prevent hanging. 
     Ensure NVIDIA_API_KEY is set in your environment variables.
     """
-    return ChatNVIDIA(model=model, temperature=temperature)
+    return ChatNVIDIA(model=model, temperature=temperature, timeout=25)
 
 def safe_invoke(chain, input_data, max_retries=3):
     import time
