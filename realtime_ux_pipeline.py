@@ -176,7 +176,7 @@ class UXIntelligenceOutput(BaseModel):
 
 class EmailOutput(BaseModel):
     subject_line: str = Field(description="Catchy, relevant subject line")
-    email_body: str = Field(description="Personalized email body (Max 120 words)")
+    email_body: str = Field(description="Personalized email body. MUST include proper line breaks (\\n\\n) between paragraphs for readability.")
 
 class LeadOutput(BaseModel):
     emails: List[str] = Field(description="List of actual contact emails extracted from the text. Empty list if none found.")
@@ -315,13 +315,15 @@ def email_and_lead_agent(state: GraphState) -> Dict:
         sys_prompt = (
             "You are an elite B2B sales expert. Write a highly effective, concise cold outreach email (50-125 words) based on the identified UX issues and website data.\n\n"
             "MANDATORY STRUCTURE:\n"
-            "1. Subject Line: Short (3-5 words), intriguing, and personalized (e.g., 'Idea for [Company]', 'Question about [Page]').\n"
-            "2. Opening Hook: Focus entirely on them. Reference a specific detail from their website data to show you did your homework.\n"
-            "3. Problem/Value: Identify the specific UX issue/pain point and offer a one-sentence solution highlighting the outcome you provide.\n"
-            "4. Soft CTA: Use a low-friction, binary question (e.g., 'Worth exploring?', 'Are you open to learning how we did it?'). Do not ask for a meeting immediately.\n"
-            "5. Sign-off: Use the Sender Name and Sender Company.\n"
-            "6. P.S. Line: Add a short, personalized P.S. highlighting an extra insight or relevant detail.\n\n"
-            "RULES:\n"
+            "1. Subject Line: Short (3-5 words), intriguing, and personalized.\n"
+            "2. Greeting: E.g., 'Hi [Name],'\n"
+            "3. Opening Hook: Focus entirely on them. Reference a specific detail from their website data to show you did your homework.\n"
+            "4. Problem/Value: Identify the specific UX issue/pain point and offer a one-sentence solution highlighting the outcome you provide.\n"
+            "5. Soft CTA: Use a low-friction, binary question (e.g., 'Worth exploring?', 'Are you open to learning how we did it?'). Do not ask for a meeting immediately.\n"
+            "6. Sign-off: Use the Sender Name and Sender Company.\n"
+            "7. P.S. Line: Add a short, personalized P.S. highlighting an extra insight or relevant detail.\n\n"
+            "CRITICAL FORMATTING RULES:\n"
+            "- You MUST format the email_body string with proper line breaks (\\n\\n) between the greeting, hook, problem, CTA, sign-off, and P.S. It must NOT be a single wall of text.\n"
             "- Keep it brief: 3-4 sentences total in the body.\n"
             "- Avoid spam words ('free', 'discount', excessive '!').\n"
             "- Focus on relevance (30% about them, 30% about your value, 50% about benefits to them).\n"
