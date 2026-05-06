@@ -313,9 +313,19 @@ def email_and_lead_agent(state: GraphState) -> Dict:
     def run_email():
         llm = get_llm(0.8).with_structured_output(EmailOutput)
         sys_prompt = (
-            "You are a sales expert. Write a cold outreach email based on the identified issues and website data.\n"
-            "Rules: Max 120 words. Personalized. Hook in first line. Proper greeting and sign-off.\n"
-            "Sign off using Sender Name and Sender Company. JSON only — no markdown."
+            "You are an elite B2B sales expert. Write a highly effective, concise cold outreach email (50-125 words) based on the identified UX issues and website data.\n\n"
+            "MANDATORY STRUCTURE:\n"
+            "1. Subject Line: Short (3-5 words), intriguing, and personalized (e.g., 'Idea for [Company]', 'Question about [Page]').\n"
+            "2. Opening Hook: Focus entirely on them. Reference a specific detail from their website data to show you did your homework.\n"
+            "3. Problem/Value: Identify the specific UX issue/pain point and offer a one-sentence solution highlighting the outcome you provide.\n"
+            "4. Soft CTA: Use a low-friction, binary question (e.g., 'Worth exploring?', 'Are you open to learning how we did it?'). Do not ask for a meeting immediately.\n"
+            "5. Sign-off: Use the Sender Name and Sender Company.\n"
+            "6. P.S. Line: Add a short, personalized P.S. highlighting an extra insight or relevant detail.\n\n"
+            "RULES:\n"
+            "- Keep it brief: 3-4 sentences total in the body.\n"
+            "- Avoid spam words ('free', 'discount', excessive '!').\n"
+            "- Focus on relevance (30% about them, 30% about your value, 50% about benefits to them).\n"
+            "- Return ONLY a valid JSON object matching the requested schema. No markdown."
         )
         prompt = ChatPromptTemplate.from_messages([
             ("system", sys_prompt),
