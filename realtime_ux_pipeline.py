@@ -17,77 +17,47 @@ from langchain_core.prompts import ChatPromptTemplate
 # Using NVIDIA AI Endpoints for the LLM
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
+import re
+
 # =======================================================================
 # SCRAPING LOGIC
 # =======================================================================
 
-class TextExtractor(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.text = []
-        self.in_script_or_style = False
-
-    def handle_starttag(self, tag, attrs):
-        if tag in ('script', 'style'):
-            self.in_script_or_style = True
-
-    def handle_endtag(self, tag):
-        if tag in ('script', 'style'):
-            self.in_script_or_style = False
-
-    def handle_data(self, data):
-        if not self.in_script_or_style:
-            text = data.strip()
-            if text:
-                self.text.append(text)
-
-    def get_text(self):
-        return ' '.join(self.text)
-
-class LinkExtractor(HTMLParser):
-    def __init__(self, base_url):
-        super().__init__()
-        self.base_url = base_url
-        self.links = set()
-
-    def handle_starttag(self, tag, attrs):
-        if tag == 'a':
-            for attr, value in attrs:
-                if attr == 'href':
-                    # Normalize URL and check domain
-                    full_url = urllib.parse.urljoin(self.base_url, value)
-                    if full_url.startswith('http') and urllib.parse.urlparse(full_url).netloc == urllib.parse.urlparse(self.base_url).netloc:
-                        # Remove fragment
-                        full_url = urllib.parse.urlunparse(urllib.parse.urlparse(full_url)._replace(fragment=""))
-                        # Ensure no trailing slash mismatch causing duplicates
-                        self.links.add(full_url.rstrip('/'))
-
 def scrape_url_text(url: str) -> tuple[str, list]:
-    """Scrapes a single URL returning its text (up to 2500 chars) and a list of internal links."""
+    """Scrapes a single URL using Jina Reader API (which renders JS) and extracts Markdown + internal links."""
     try:
+        jina_url = f"https://r.jina.ai/{url}"
         req = urllib.request.Request(
-            url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            jina_url, 
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'X-Return-Format': 'markdown'
+            }
         )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            html = response.read().decode('utf-8', errors='ignore')
+        with urllib.request.urlopen(req, timeout=20) as response:
+            markdown = response.read().decode('utf-8', errors='ignore')
             
-            # Extract text
-            extractor = TextExtractor()
-            extractor.feed(html)
-            text = extractor.get_text()
+            # Extract links from markdown [Text](https://...)
+            links = re.findall(r'\[.*?\]\((https?://[^\)]+)\)', markdown)
             
-            # Extract internal links
-            link_extractor = LinkExtractor(url)
-            link_extractor.feed(html)
+            # Filter internal links
+            base_netloc = urllib.parse.urlparse(url).netloc
+            internal_links = set()
+            for link in links:
+                parsed_link = urllib.parse.urlparse(link)
+                if parsed_link.netloc == base_netloc:
+                    # Remove fragment and trailing slash
+                    clean_link = urllib.parse.urlunparse(parsed_link._replace(fragment="")).rstrip('/')
+                    internal_links.add(clean_link)
             
-            return text[:2500], list(link_extractor.links)
+            # Keep up to 3000 chars per page to avoid token limits
+            return markdown[:3000], list(internal_links)
     except Exception as e:
         return f"Could not scrape {url}: {e}", []
 
-def crawl_website(start_url: str, max_pages: int = 5) -> str:
+def crawl_website(start_url: str, max_pages: int = 8) -> str:
     """Crawls the start_url and up to max_pages - 1 internal links in parallel."""
-    print(f"  ↳ Starting deep site crawl at {start_url} (max {max_pages} pages)")
+    print(f"  ↳ Starting Jina deep crawl at {start_url} (max {max_pages} pages)")
     start_url = start_url.rstrip('/')
     
     base_text, internal_links = scrape_url_text(start_url)
@@ -98,7 +68,7 @@ def crawl_website(start_url: str, max_pages: int = 5) -> str:
     for link in internal_links:
         if link != start_url:
             lower_link = link.lower()
-            if any(kw in lower_link for kw in ['about', 'pricing', 'service', 'feature', 'contact', 'product']):
+            if any(kw in lower_link for kw in ['about', 'pricing', 'service', 'feature', 'contact', 'product', 'solution']):
                 prioritized_links.insert(0, link)
             else:
                 prioritized_links.append(link)
@@ -114,7 +84,7 @@ def crawl_website(start_url: str, max_pages: int = 5) -> str:
                 break
                 
     if to_crawl:
-        print(f"  ↳ Scraping internal pages in parallel: {to_crawl}")
+        print(f"  ↳ Scraping internal pages via Jina API: {to_crawl}")
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(to_crawl)) as executor:
             future_to_url = {executor.submit(scrape_url_text, url): url for url in to_crawl}
             for future in concurrent.futures.as_completed(future_to_url):
@@ -259,6 +229,7 @@ def ux_intelligence_agent(state: GraphState) -> Dict:
         "Analyze ONLY the provided REAL-TIME scraped website content (which includes the homepage and key internal pages) and business data to identify ALL critical issues and growth opportunities related to your area of expertise "
         "that cause revenue/conversion loss for the target website.\n"
         "STRICT RULE: Ban guessing, predicting, hallucinating, and assuming. Every claim or issue must be 100% factual and directly proven by the real-time data provided.\n"
+        "ANTI-HALLUCINATION GUARD: If the scraped data is extremely short, contains error messages, or looks like the crawler was blocked, DO NOT invent issues. You must return a single issue stating 'CRITICAL SCRAPING ERROR: The website blocked the crawler or contains no readable text.' and set all other fields to 'N/A'.\n"
         "Identify site-wide issues by cross-referencing information across the multiple crawled pages if possible.\n"
         "List EVERY problem and opportunity you find that fits the criteria. Do not limit yourself to just one.\n"
         "IMPORTANT: Respond ONLY with a valid JSON object matching the requested schema. Do not include any conversational text or markdown formatting."
