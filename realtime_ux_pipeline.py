@@ -1,6 +1,8 @@
 import os
 import sys
 import urllib.request
+import urllib.parse
+import concurrent.futures
 from html.parser import HTMLParser
 
 # Ensure stdout supports emoji characters in Windows terminals
@@ -42,7 +44,26 @@ class TextExtractor(HTMLParser):
     def get_text(self):
         return ' '.join(self.text)
 
-def scrape_url(url: str) -> str:
+class LinkExtractor(HTMLParser):
+    def __init__(self, base_url):
+        super().__init__()
+        self.base_url = base_url
+        self.links = set()
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'a':
+            for attr, value in attrs:
+                if attr == 'href':
+                    # Normalize URL and check domain
+                    full_url = urllib.parse.urljoin(self.base_url, value)
+                    if full_url.startswith('http') and urllib.parse.urlparse(full_url).netloc == urllib.parse.urlparse(self.base_url).netloc:
+                        # Remove fragment
+                        full_url = urllib.parse.urlunparse(urllib.parse.urlparse(full_url)._replace(fragment=""))
+                        # Ensure no trailing slash mismatch causing duplicates
+                        self.links.add(full_url.rstrip('/'))
+
+def scrape_url_text(url: str) -> tuple[str, list]:
+    """Scrapes a single URL returning its text (up to 2500 chars) and a list of internal links."""
     try:
         req = urllib.request.Request(
             url, 
@@ -50,12 +71,63 @@ def scrape_url(url: str) -> str:
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             html = response.read().decode('utf-8', errors='ignore')
+            
+            # Extract text
             extractor = TextExtractor()
             extractor.feed(html)
             text = extractor.get_text()
-            return text[:2500]
+            
+            # Extract internal links
+            link_extractor = LinkExtractor(url)
+            link_extractor.feed(html)
+            
+            return text[:2500], list(link_extractor.links)
     except Exception as e:
-        return f"Could not scrape {url}: {e}"
+        return f"Could not scrape {url}: {e}", []
+
+def crawl_website(start_url: str, max_pages: int = 5) -> str:
+    """Crawls the start_url and up to max_pages - 1 internal links in parallel."""
+    print(f"  ↳ Starting deep site crawl at {start_url} (max {max_pages} pages)")
+    start_url = start_url.rstrip('/')
+    
+    base_text, internal_links = scrape_url_text(start_url)
+    crawled_data = [f"--- PAGE: {start_url} ---\n{base_text}"]
+    
+    # Prioritize important pages (about, pricing, services, features, contact)
+    prioritized_links = []
+    for link in internal_links:
+        if link != start_url:
+            lower_link = link.lower()
+            if any(kw in lower_link for kw in ['about', 'pricing', 'service', 'feature', 'contact', 'product']):
+                prioritized_links.insert(0, link)
+            else:
+                prioritized_links.append(link)
+                
+    # Select unique links to crawl
+    seen = set([start_url])
+    to_crawl = []
+    for link in prioritized_links:
+        if link not in seen:
+            seen.add(link)
+            to_crawl.append(link)
+            if len(to_crawl) >= max_pages - 1:
+                break
+                
+    if to_crawl:
+        print(f"  ↳ Scraping internal pages in parallel: {to_crawl}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(to_crawl)) as executor:
+            future_to_url = {executor.submit(scrape_url_text, url): url for url in to_crawl}
+            for future in concurrent.futures.as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    text, _ = future.result()
+                    crawled_data.append(f"--- PAGE: {url} ---\n{text}")
+                except Exception as exc:
+                    crawled_data.append(f"--- PAGE: {url} ---\n[Failed to load: {exc}]")
+                    
+    combined_data = "\n\n".join(crawled_data)
+    print(f"  ↳ Crawl complete. Total pages: {len(crawled_data)}, Total chars: {len(combined_data)}")
+    return combined_data
 
 # =======================================================================
 # 1. STATE DEFINITION
@@ -141,10 +213,9 @@ def input_agent(state: GraphState) -> Dict:
     """
     Purpose: Extract structured business insights from the URL.
     """
-    print("▶ [INPUT AGENT] Analyzing URL in Real-Time...")
+    print("▶ [INPUT AGENT] Deep Crawling Website in Real-Time...")
     
-    realtime_data = scrape_url(state["input_url"])
-    print(f"  ↳ Scraped {len(realtime_data)} characters of real-time website data.")
+    realtime_data = crawl_website(state["input_url"])
     
     llm = get_llm(0.0, "meta/llama-3.1-8b-instruct").with_structured_output(BusinessData)
     
@@ -163,7 +234,11 @@ def input_agent(state: GraphState) -> Dict:
         "realtime_data": realtime_data
     })
     
-    return {"business_data": business_data.dict(), "realtime_website_data": realtime_data, "status": "business_analyzed"}
+    business_dict = business_data.model_dump() if business_data else {
+        "business_type": "Unknown", "target_audience": "Unknown", "primary_cta": "Unknown", "key_pages": [], "summary": "Failed to extract business data."
+    }
+    
+    return {"business_data": business_dict, "realtime_website_data": realtime_data, "status": "business_analyzed"}
 
 def ux_intelligence_agent(state: GraphState) -> Dict:
     """
@@ -181,9 +256,10 @@ def ux_intelligence_agent(state: GraphState) -> Dict:
     sys_prompt = (
         "You are an elite Consultant and Expert Auditor. Your persona and auditing focus must be strictly aligned with the following services and context:\n"
         "{ideation_context}\n\n"
-        "Analyze ONLY the provided REAL-TIME scraped website content and business data to identify ALL critical issues and growth opportunities related to your area of expertise "
+        "Analyze ONLY the provided REAL-TIME scraped website content (which includes the homepage and key internal pages) and business data to identify ALL critical issues and growth opportunities related to your area of expertise "
         "that cause revenue/conversion loss for the target website.\n"
         "STRICT RULE: Ban guessing, predicting, hallucinating, and assuming. Every claim or issue must be 100% factual and directly proven by the real-time data provided.\n"
+        "Identify site-wide issues by cross-referencing information across the multiple crawled pages if possible.\n"
         "List EVERY problem and opportunity you find that fits the criteria. Do not limit yourself to just one.\n"
         "IMPORTANT: Respond ONLY with a valid JSON object matching the requested schema. Do not include any conversational text or markdown formatting."
     )
@@ -205,9 +281,9 @@ def ux_intelligence_agent(state: GraphState) -> Dict:
     })
     
     if is_regeneration:
-        new_issues = existing_issues + [issue.dict() for issue in response.issues]
+        new_issues = existing_issues + [issue.model_dump() for issue in response.issues] if response and hasattr(response, 'issues') else existing_issues
     else:
-        new_issues = [issue.dict() for issue in response.issues]
+        new_issues = [issue.model_dump() for issue in response.issues] if response and hasattr(response, 'issues') else []
         
     if not new_issues:
         selected_issue = {}
@@ -253,7 +329,7 @@ def email_and_lead_agent(state: GraphState) -> Dict:
             "user_name": state.get("user_name", "UX Expert"),
             "user_company": state.get("user_company", "Our Agency")
         })
-        return result.dict()
+        return result.model_dump() if result else {"subject_line": "Opportunity", "email_body": "Could not generate email."}
 
     def run_lead():
         llm = get_llm(0.0, "meta/llama-3.1-8b-instruct").with_structured_output(LeadOutput)
@@ -269,7 +345,7 @@ def email_and_lead_agent(state: GraphState) -> Dict:
             "url": state.get("input_url"),
             "realtime_data": state.get("realtime_website_data", "")[:1500]
         })
-        return result.dict()
+        return result.model_dump() if result else {"emails": [], "validation_status": "None found"}
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         email_future = executor.submit(run_email)
