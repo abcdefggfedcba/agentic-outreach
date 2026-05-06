@@ -55,7 +55,7 @@ def scrape_url_text(url: str) -> tuple[str, list]:
     except Exception as e:
         return f"Could not scrape {url}: {e}", []
 
-def crawl_website(start_url: str, max_pages: int = 8) -> str:
+def crawl_website(start_url: str, max_pages: int = 10) -> str:
     """Crawls the start_url and up to max_pages - 1 internal links in parallel."""
     print(f"  ↳ Starting Jina deep crawl at {start_url} (max {max_pages} pages)")
     start_url = start_url.rstrip('/')
@@ -85,7 +85,7 @@ def crawl_website(start_url: str, max_pages: int = 8) -> str:
                 
     if to_crawl:
         print(f"  ↳ Scraping internal pages via Jina API: {to_crawl}")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(to_crawl)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_url = {executor.submit(scrape_url_text, url): url for url in to_crawl}
             for future in concurrent.futures.as_completed(future_to_url):
                 url = future_to_url[future]
