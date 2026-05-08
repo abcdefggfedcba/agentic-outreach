@@ -43,12 +43,17 @@ def scrape_url_text(url: str) -> tuple[str, list]:
             # Filter internal links
             base_netloc = urllib.parse.urlparse(url).netloc
             internal_links = set()
+            
+            # Avoid scraping image and document assets
+            excluded_exts = ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.mp4', '.pdf', '.css', '.js', '.json')
+            
             for link in links:
                 parsed_link = urllib.parse.urlparse(link)
                 if parsed_link.netloc == base_netloc:
-                    # Remove fragment and trailing slash
                     clean_link = urllib.parse.urlunparse(parsed_link._replace(fragment="")).rstrip('/')
-                    internal_links.add(clean_link)
+                    
+                    if not clean_link.lower().endswith(excluded_exts):
+                        internal_links.add(clean_link)
             
             # Keep up to 3000 chars per page to avoid token limits
             return markdown[:3000], list(internal_links)
